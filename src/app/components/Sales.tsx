@@ -642,9 +642,9 @@ export function Sales({ data, onUpdateData }: Props) {
         const paidValue = monthlyPaid + advAmt;
         const paidStyle = monthlyPaid > 0 ? 'color:#16a34a' : '';
         return `<tr><td>${l.name}</td><td>${r.blockName}</td><td>${r.units.join(', ')}</td>` +
+        `<td style="text-align:right">${fmt(getLesseeRentForMonth(data.payments, l, currentMonthStr))}</td>` +
         `<td style="text-align:right">${PAYMENT_METHOD_LABEL[pays[0]?.method ?? 'cash'] || '—'}</td>` +
-        `<td style="text-align:right;${paidStyle}">${paidValue > 0 ? fmt(paidValue) : '—'}</td>` +
-        `<td style="text-align:right">${fmt(getLesseeRentForMonth(data.payments, l, currentMonthStr))}</td></tr>`;
+        `<td style="text-align:right;${paidStyle}">${paidValue > 0 ? fmt(paidValue) : '—'}</td></tr>`;
       });
     }).join('');
     const totalCollected = filtered.reduce((s, l) => s + getLesseeMonthStatus(data.payments, l, currentMonthStr).paid, 0);
@@ -699,9 +699,11 @@ export function Sales({ data, onUpdateData }: Props) {
           ? '#16a34a'
           : (ms.status === 'paid' || ms.isAdvance ? '#16a34a' : ms.status === 'partial' ? '#ea580c' : '#dc2626');
         return expandToBlockRows(l).map((r, ri) => {
-          return `<tr><td>${l.name}</td><td>Blk ${r.blockName}</td><td>${r.units.join(', ')}</td><td>${methods}</td>` +
+          return `<tr><td>${l.name}</td><td>Blk ${r.blockName}</td><td>${r.units.join(', ')}</td>` +
+          `<td style="text-align:right">${fmt(getLesseeRentForMonth(data.payments, l, mStr))}</td>` +
+          `<td>${methods}</td>` +
           `<td style="text-align:right;color:${paidColor}">${combinedPaid > 0 ? fmt(combinedPaid) : '—'}</td>` +
-          `<td style="text-align:right">${fmt(getLesseeRentForMonth(data.payments, l, mStr))}</td></tr>`;
+          `</tr>`;
         });
       }).join('');
 
