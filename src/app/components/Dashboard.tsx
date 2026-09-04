@@ -3,11 +3,12 @@ import type { AppData } from '../data/types';
 import {
   getTotalSalesForMonth, getMonthlyCollections,
   getMethodBreakdown, getYearsWithData, PAYMENT_METHOD_LABEL,
-  isLesseeActiveForMonth, getLesseeMonthReceivable,
+  isLesseeActiveForMonth, getLesseeRentForMonth, getMonthlyReceivables,
 } from '../data/store';
 
 const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const fmt = (n: number) => `₱${n.toLocaleString()}`;
+const fmtReceivable = (n: number) => n < 0 ? `+${fmt(Math.abs(n))}` : fmt(n);
 interface Props { data: AppData; bgImages: string[] }
 
 type ChartEntry = { name: string; cash: number; check: number; digital: number; advance: number; receivables: number; totalSales: number };
@@ -27,8 +28,8 @@ function getMonthlyChartData(data: AppData, locId: string, year: number): ChartE
     const advance = data.payments
       .filter(p => p.forMonth === monthStr && p.type === 'deposit_advance' && locLessees.some(l => l.id === p.lesseeId))
       .reduce((s, p) => s + p.amount, 0);
-    const totalSales = getTotalSalesForMonth(locLessees, monthStr, locId);
-    const receivables = isFuture ? 0 : active.reduce((s, l) => s + getLesseeMonthReceivable(data.payments, l, monthStr), 0);
+    const totalSales = getTotalSalesForMonth(locLessees, monthStr, locId, data.payments);
+    const receivables = isFuture ? 0 : getMonthlyReceivables(data.payments, locLessees, monthStr, locId);
 
     return {
       name: label,
@@ -69,8 +70,8 @@ function getAllYearsChartData(data: AppData, locId: string, years: number[]): Ch
       advance += data.payments
         .filter(p => p.forMonth === monthStr && p.type === 'deposit_advance' && locLessees.some(l => l.id === p.lesseeId))
         .reduce((s, p) => s + p.amount, 0);
-      totalSales += getTotalSalesForMonth(locLessees, monthStr, locId);
-      receivables += active.reduce((s, l) => s + getLesseeMonthReceivable(data.payments, l, monthStr), 0);
+      totalSales += getTotalSalesForMonth(locLessees, monthStr, locId, data.payments);
+      receivables += getMonthlyReceivables(data.payments, locLessees, monthStr, locId);
     }
 
     return { name: String(year), cash, check, digital, advance, receivables, totalSales };
@@ -213,10 +214,10 @@ function StackedBarChart({
   );
 }
 
-const Card = ({ label, value, sub, color }: { label: string; value: string; sub?: string; color: string }) => (
+const Card = ({ label, value, sub, color, valueClass }: { label: string; value: string; sub?: string; color: string; valueClass?: string }) => (
   <div className={`bg-white dark:bg-gray-800 rounded-xl border-l-4 p-4 shadow-sm ${color}`}>
     <p className="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">{label}</p>
-    <p className="text-xl font-bold text-gray-800 dark:text-gray-100 mt-1">{value}</p>
+    <p className={`text-xl font-bold mt-1 ${valueClass ?? 'text-gray-800 dark:text-gray-100'}`}>{value}</p>
     {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
   </div>
 );
@@ -246,9 +247,9 @@ function LocationSection({ data, locId, locName, year, viewMode, allYears, isOpe
   const periodActiveLessees = data.lessees.filter(l => l.locationId === locId && isLesseeActiveForMonth(l, summaryMonth));
   const currentActiveLessees = data.lessees.filter(l => l.locationId === locId && l.isActive);
   const activeLesseeIds = new Set(periodActiveLessees.map(l => l.id));
-  const totalSales = periodActiveLessees.reduce((s, l) => s + l.monthlyRent, 0);
+  const totalSales = periodActiveLessees.reduce((s, l) => s + getLesseeRentForMonth(data.payments, l, summaryMonth), 0);
   const monthlyCollections = getMonthlyCollections(data.payments, data.lessees, summaryMonth, locId);
-  const receivables = periodActiveLessees.reduce((s, l) => s + getLesseeMonthReceivable(data.payments, l, summaryMonth), 0);
+  const receivables = getMonthlyReceivables(data.payments, data.lessees, summaryMonth, locId);
   const advanceDepositMonth = data.payments
     .filter(p => p.forMonth === summaryMonth && p.type === 'deposit_advance' && activeLesseeIds.has(p.lesseeId))
     .reduce((s, p) => s + p.amount, 0);
@@ -257,7 +258,7 @@ function LocationSection({ data, locId, locName, year, viewMode, allYears, isOpe
     const hasAdvPay = data.payments.some(p => p.lesseeId === l.id && p.forMonth === summaryMonth && (p.type === 'deposit_advance' || p.type === 'advance_used'));
     if (hasAdvPay && data.payments.some(p => p.lesseeId === l.id && p.forMonth === summaryMonth && p.type === 'advance_used')) return false;
     const paid = data.payments.filter(p => p.lesseeId === l.id && p.forMonth === summaryMonth && p.type !== 'deposit_advance').reduce((s, p) => s + p.amount, 0);
-    return paid < l.monthlyRent;
+    return paid < getLesseeRentForMonth(data.payments, l, summaryMonth);
   }).length;
 
   const locLessees = data.lessees.filter(l => l.locationId === locId);
@@ -300,7 +301,7 @@ function LocationSection({ data, locId, locName, year, viewMode, allYears, isOpe
             <Card label="Advance Deposit" value={fmt(advanceDepositMonth)} sub="This month's advance" color="border-amber-500" />
             <Card label="Total Income" value={fmt(totalIncome)} sub="Sales + Advance" color="border-purple-500" />
             <Card label="Monthly Collections" value={fmt(monthlyCollections)} sub={`${totalSales > 0 ? ((monthlyCollections / totalSales) * 100).toFixed(1) : 0}% collected`} color="border-emerald-500" />
-            <Card label="Receivables" value={fmt(receivables)} sub={`${totalSales > 0 ? ((receivables / totalSales) * 100).toFixed(1) : 0}% uncollected`} color="border-rose-500" />
+            <Card label="Receivables" value={fmtReceivable(receivables)} sub={`${totalSales > 0 ? ((receivables / totalSales) * 100).toFixed(1) : 0}% uncollected`} color="border-rose-500" valueClass={receivables < 0 ? 'text-green-700' : undefined} />
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">

@@ -128,13 +128,24 @@ export const isLesseeActiveForMonth = (lessee: Lessee, month: string): boolean =
   return lessee.isActive || Boolean(endDate);
 };
 
+export const getLesseeRentForMonth = (
+  payments: Payment[], lessee: Lessee, month: string
+): number => {
+  const hasAdvanceDeposit = payments.some(p =>
+    p.lesseeId === lessee.id &&
+    p.forMonth === month &&
+    p.type === 'deposit_advance'
+  );
+  return hasAdvanceDeposit && month === lessee.startDate.slice(0, 7) ? 0 : lessee.monthlyRent;
+};
+
 export const getTotalSalesForMonth = (
-  lessees: Lessee[], month: string, locationId?: string
+  lessees: Lessee[], month: string, locationId?: string, payments: Payment[] = []
 ): number => {
   const target = locationId ? lessees.filter(l => l.locationId === locationId) : lessees;
   return target
     .filter(l => isLesseeActiveForMonth(l, month))
-    .reduce((sum, l) => sum + l.monthlyRent, 0);
+    .reduce((sum, l) => sum + getLesseeRentForMonth(payments, l, month), 0);
 };
 
 export const getMonthlyCollections = (
@@ -179,14 +190,14 @@ export const getLesseeMonthReceivable = (
     .filter(p => (p.type === 'monthly' || p.type === 'downpayment' || p.type === 'advance_used') && p.amount > 0)
     .reduce((sum, p) => sum + p.amount, 0);
 
-  return Math.max(0, lessee.monthlyRent - collected);
+  return Math.max(0, getLesseeRentForMonth(payments, lessee, month) - collected);
 };
 
 export const getMonthlyReceivables = (
   payments: Payment[], lessees: Lessee[], month: string, locationId?: string
 ): number => {
   const target = locationId ? lessees.filter(l => l.locationId === locationId) : lessees;
-  return target.reduce((sum, lessee) => sum + getLesseeMonthReceivable(payments, lessee, month), 0);
+  return getTotalSalesForMonth(target, month, undefined, payments) - getMonthlyCollections(payments, target, month);
 };
 
 /** Returns amount remaining in a lessee's stored advance bucket. */
@@ -265,7 +276,7 @@ export const getMonthlyData = (
       check: relevant.filter(p => p.method === 'check' && p.type !== 'deposit_advance').reduce((s, p) => s + p.amount, 0),
       digital: relevant.filter(p => p.method === 'digital' && p.type !== 'deposit_advance').reduce((s, p) => s + p.amount, 0),
       advanceDeposit: relevant.filter(p => p.type === 'deposit_advance').reduce((s, p) => s + p.amount, 0),
-      totalSales: getTotalSalesForMonth(lessees, monthStr, locationId),
+      totalSales: getTotalSalesForMonth(lessees, monthStr, locationId, payments),
     };
   });
 };
@@ -288,7 +299,7 @@ export const getLesseeMonthStatus = (
   const regularPaid = monthPayments
     .filter(p => p.type === 'monthly' || p.type === 'downpayment')
     .reduce((s, p) => s + p.amount, 0);
-  const totalDue = lessee.monthlyRent;
+  const totalDue = getLesseeRentForMonth(payments, lessee, month);
   const paid = isAdvance ? totalDue : regularPaid;
   const status: 'paid' | 'partial' | 'unpaid' = isAdvance
     ? 'paid'

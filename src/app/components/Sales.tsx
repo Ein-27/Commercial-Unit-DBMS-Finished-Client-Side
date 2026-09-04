@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import type { AppData, Lessee, Payment, PaymentMethod } from '../data/types';
-import { createDepositPayments, generateId, getLesseeMonthStatus, getStoredAdvanceBalance, getYearsWithData, PAYMENT_METHOD_LABEL, isLesseeActiveForMonth, getLesseeMonthReceivable, getMonthlyCollections } from '../data/store';
+import { createDepositPayments, generateId, getLesseeMonthStatus, getStoredAdvanceBalance, getYearsWithData, PAYMENT_METHOD_LABEL, isLesseeActiveForMonth, getLesseeRentForMonth, getMonthlyCollections, getMonthlyReceivables } from '../data/store';
 import { enterToNext, getOrCreateTransactionSOA } from '../utils';
 import { useConfirm, PrintTitleModal } from './ConfirmDialog';
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const fmt = (n: number) => `₱${n.toLocaleString()}`;
+const fmtReceivable = (n: number) => n < 0 ? `+${fmt(Math.abs(n))}` : fmt(n);
 const METHODS: PaymentMethod[] = ['cash', 'check', 'digital'];
 
 type SortKey = 'name-asc' | 'name-desc' | 'date-newest' | 'date-oldest' | 'block-asc' | 'block-desc' | 'unit-asc' | 'unit-desc';
@@ -643,27 +644,27 @@ export function Sales({ data, onUpdateData }: Props) {
         return `<tr><td>${l.name}</td><td>${r.blockName}</td><td>${r.units.join(', ')}</td>` +
         `<td style="text-align:right">${PAYMENT_METHOD_LABEL[pays[0]?.method ?? 'cash'] || '—'}</td>` +
         `<td style="text-align:right;${paidStyle}">${paidValue > 0 ? fmt(paidValue) : '—'}</td>` +
-        `<td style="text-align:right">${fmt(l.monthlyRent)}</td></tr>`;
+        `<td style="text-align:right">${fmt(getLesseeRentForMonth(data.payments, l, currentMonthStr))}</td></tr>`;
       });
     }).join('');
     const totalCollected = filtered.reduce((s, l) => s + getLesseeMonthStatus(data.payments, l, currentMonthStr).paid, 0);
     const totalAdvance = data.payments.filter(p => p.forMonth === currentMonthStr && p.type === 'deposit_advance' && filtered.some(l => l.id === p.lesseeId)).reduce((s, p) => s + p.amount, 0);
-    const totalSales = filtered.reduce((s, l) => s + l.monthlyRent, 0);
+    const totalSales = filtered.reduce((s, l) => s + getLesseeRentForMonth(data.payments, l, currentMonthStr), 0);
     const totalIncome = totalSales + totalAdvance;
-    const receivables = Math.max(0, totalSales - totalCollected);
+    const receivables = totalSales - totalCollected;
     const win = window.open('', '_blank');
     if (!win) return;
     win.document.write(`<!DOCTYPE html><html><head><title>R. A. Del Rosario Construction</title>
       <style>body{font-family:sans-serif;font-size:12px;padding:20px}h1{font-size:16px}h2{font-size:13px;color:#555;font-weight:normal}table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:6px 10px}th{background:#1e3a5f;color:#fff}tr:nth-child(even){background:#f9f9f9}.summ{margin-top:16px;border-top:2px solid #1e3a5f;padding-top:10px}.srow{display:flex;justify-content:space-between;padding:2px 4px;border-bottom:1px solid #eee}</style>
     </head><body>
       <h1>R. A. Del Rosario Construction</h1><h2>${title}</h2>
-      <table><thead><tr><th>Name</th><th>Block</th><th>Unit</th><th>Method</th><th style="text-align:right">Paid</th><th style="text-align:right">Rent/mo</th></tr></thead>
+      <table><thead><tr><th>Name</th><th>Block</th><th>Unit</th><th style="text-align:right">Rent/mo</th><th>Method</th><th style="text-align:right">Paid</th></tr></thead>
       <tbody>${rows}</tbody></table>
       <div class="summ">
         <div class="srow"><span>Monthly Collections</span><span>${fmt(totalCollected)}</span></div>
         <div class="srow"><span>Advance Deposit</span><span>${fmt(totalAdvance)}</span></div>
         <div class="srow" style="font-weight:bold"><span>Total Income</span><span>${fmt(totalIncome)}</span></div>
-        <div class="srow" style="color:#dc2626"><span>Receivables</span><span>${fmt(receivables)}</span></div>
+        <div class="srow" style="color:${receivables < 0 ? '#16a34a' : '#dc2626'}"><span>Receivables</span><span>${fmtReceivable(receivables)}</span></div>
         <div class="srow" style="border-bottom:none;color:#1e40af"><span>Total Sales</span><span>${fmt(totalSales)}</span></div>
       </div>
     </body></html>`);
@@ -700,15 +701,15 @@ export function Sales({ data, onUpdateData }: Props) {
         return expandToBlockRows(l).map((r, ri) => {
           return `<tr><td>${l.name}</td><td>Blk ${r.blockName}</td><td>${r.units.join(', ')}</td><td>${methods}</td>` +
           `<td style="text-align:right;color:${paidColor}">${combinedPaid > 0 ? fmt(combinedPaid) : '—'}</td>` +
-          `<td style="text-align:right">${fmt(l.monthlyRent)}</td></tr>`;
+          `<td style="text-align:right">${fmt(getLesseeRentForMonth(data.payments, l, mStr))}</td></tr>`;
         });
       }).join('');
 
       const monthCollected = getMonthlyCollections(data.payments, filtered, mStr);
       const monthAdvDeposit = data.payments.filter(p => p.forMonth === mStr && p.type === 'deposit_advance' && filtered.some(l => l.id === p.lesseeId)).reduce((s, p) => s + p.amount, 0);
-      const monthTotalSales = isFuture ? 0 : filtered.reduce((s, l) => s + l.monthlyRent, 0);
+      const monthTotalSales = isFuture ? 0 : filtered.reduce((s, l) => s + getLesseeRentForMonth(data.payments, l, mStr), 0);
       const monthTotalIncome = monthTotalSales + monthAdvDeposit;
-      const monthReceivables = isFuture ? 0 : filtered.reduce((s, l) => s + getLesseeMonthReceivable(data.payments, l, mStr), 0);
+      const monthReceivables = isFuture ? 0 : getMonthlyReceivables(data.payments, filtered, mStr);
 
       grandCollected += monthCollected;
       grandAdvDeposit += monthAdvDeposit;
@@ -717,14 +718,14 @@ export function Sales({ data, onUpdateData }: Props) {
 
       firstSection = false;
       html += `<h3>${MONTHS[mi]} ${year}</h3>
-        <table><thead><tr><th>Name</th><th>Block</th><th>Unit</th><th>Method</th><th style="text-align:right">Paid</th><th style="text-align:right">Rent/mo</th></tr></thead>
+        <table><thead><tr><th>Name</th><th>Block</th><th>Unit</th><th style="text-align:right">Rent/mo</th><th>Method</th><th style="text-align:right">Paid</th></tr></thead>
         <tbody>${mRows || '<tr><td colspan="6" style="text-align:center;color:#9ca3af">No payments this month</td></tr>'}</tbody></table>
         <div class="summ-section">
           <div class="summ-row" style="color:#1e40af"><span>Total Sales</span><span>${isFuture ? '—' : fmt(monthTotalSales)}</span></div>
           <div class="summ-row" style="color:#b45309"><span>Advance Deposit</span><span>${fmt(monthAdvDeposit)}</span></div>
           <div class="summ-row" style="font-weight:bold;color:#7c3aed"><span>Total Income</span><span>${fmt(monthTotalIncome)}</span></div>
           <div class="summ-row" style="color:#16a34a"><span>Monthly Collections</span><span>${fmt(monthCollected)}</span></div>
-          <div class="summ-row" style="color:#dc2626"><span>Receivables</span><span>${isFuture ? '—' : fmt(monthReceivables)}</span></div>
+          <div class="summ-row" style="color:${monthReceivables < 0 ? '#16a34a' : '#dc2626'}"><span>Receivables</span><span>${isFuture ? '—' : fmtReceivable(monthReceivables)}</span></div>
         </div>`;
     }
 
@@ -735,7 +736,7 @@ export function Sales({ data, onUpdateData }: Props) {
         <div class="summ-row" style="color:#b45309"><span>Total Advance Deposits</span><span>${fmt(grandAdvDeposit)}</span></div>
         <div class="summ-row" style="font-weight:bold;color:#7c3aed"><span>Total Income</span><span>${fmt(grandTotalIncome)}</span></div>
         <div class="summ-row" style="color:#16a34a"><span>Total Monthly Collections</span><span>${fmt(grandCollected)}</span></div>
-        <div class="summ-row" style="color:#dc2626"><span>Total Receivables</span><span>${fmt(grandReceivables)}</span></div>
+        <div class="summ-row" style="color:${grandReceivables < 0 ? '#16a34a' : '#dc2626'}"><span>Total Receivables</span><span>${fmtReceivable(grandReceivables)}</span></div>
       </div>
     </body></html>`;
     win.document.write(html);
@@ -771,7 +772,7 @@ export function Sales({ data, onUpdateData }: Props) {
         const paid = getMonthlyPaidForDisplay(l, mStr);
         const advDep = advPays.reduce((s, p) => s + p.amount, 0);
         const combinedPaid = paid + advDep;
-        const ap = isFuture || !isLesseeActiveForMonth(l, mStr) ? 0 : Math.max(0, l.monthlyRent - paid);
+        const ap = isFuture || !isLesseeActiveForMonth(l, mStr) ? 0 : Math.max(0, getLesseeRentForMonth(data.payments, l, mStr) - paid);
         const statusColor = ms.status === 'paid' || ms.isAdvance ? '#16a34a' : ms.status === 'partial' ? '#ea580c' : '#dc2626';
         const paidColor = paid > 0 ? '#16a34a' : statusColor;
         const methods = [...new Set(pays.map(p => PAYMENT_METHOD_LABEL[p.method]))].join(', ') || (ms.isAdvance ? 'Advance' : '—');
@@ -825,8 +826,8 @@ export function Sales({ data, onUpdateData }: Props) {
       const advance = data.payments
         .filter(p => p.forMonth === mStr && p.type === 'deposit_advance' && locLesseeIds.has(p.lesseeId))
         .reduce((s, p) => s + p.amount, 0);
-      const totalSales = isFuture ? 0 : locLessees.reduce((s, l) => s + (isLesseeActiveForMonth(l, mStr) ? l.monthlyRent : 0), 0);
-      const receivables = isFuture ? 0 : locLessees.reduce((s, l) => s + getLesseeMonthReceivable(data.payments, l, mStr), 0);
+      const totalSales = isFuture ? 0 : locLessees.reduce((s, l) => s + (isLesseeActiveForMonth(l, mStr) ? getLesseeRentForMonth(data.payments, l, mStr) : 0), 0);
+      const receivables = isFuture ? 0 : getMonthlyReceivables(data.payments, locLessees, mStr);
       const totalIncome = totalSales + advance;
       return { label, mStr, collected, advance, totalSales, receivables, totalIncome, isFuture };
     });
@@ -928,17 +929,28 @@ export function Sales({ data, onUpdateData }: Props) {
       <div className="bg-white rounded-xl shadow-sm ring-1 ring-gray-100" ref={printRef}>
         <div className="overflow-x-auto [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-gray-100 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-blue-900/40 [&::-webkit-scrollbar-thumb]:rounded-full">
           {view === 'monthly' ? (
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col className="w-[10%]" />
+                <col className="w-[21%]" />
+                <col className="w-[5%]" />
+                <col className="w-[5%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[10%]" />
+                <col className="w-[25%]" />
+              </colgroup>
               <thead>
                 <tr className="bg-blue-900 text-white text-xs uppercase">
                   <th className="px-3 py-3 text-left rounded-tl-xl">Date Joined</th>
                   <th className="px-3 py-3 text-left">Name</th>
                   <th className="px-3 py-3 text-left">Block</th>
                   <th className="px-3 py-3 text-left">Unit</th>
+                  <th className="px-3 py-3 text-right">Rent/mo</th>
                   <th className="px-3 py-3 text-right">Adv. Bal</th>
                   <th className="px-3 py-3 text-center">Method</th>
                   <th className="px-3 py-3 text-right">Paid</th>
-                  <th className="px-3 py-3 text-right">Rent/mo</th>
                   <th className="px-3 py-3 text-center rounded-tr-xl">Actions</th>
                 </tr>
               </thead>
@@ -962,6 +974,7 @@ export function Sales({ data, onUpdateData }: Props) {
                       <td className="px-3 py-2.5 font-medium text-gray-800">{l.name}</td>
                       <td className="px-3 py-2.5 text-gray-600 text-xs">{blockName ? blockName : '—'}</td>
                       <td className="px-3 py-2.5 text-gray-600 text-xs">{units.join(', ') || '—'}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-700 text-sm">{fmt(getLesseeRentForMonth(data.payments, l, currentMonthStr))}</td>
                       <td className="px-3 py-2.5 text-right">
                         <span className={advBalance > 0 ? 'text-yellow-600 font-semibold text-xs' : 'text-gray-300 text-xs'}>
                           {advBalance > 0 ? fmt(advBalance) : '—'}
@@ -971,7 +984,6 @@ export function Sales({ data, onUpdateData }: Props) {
                       <td className={`px-3 py-2.5 text-right ${hasAdvDepositThisMonth ? 'text-yellow-600 font-semibold' : getStatusClass(ms.status, ms.isAdvance)}`}>
                         {fmt(getMonthlyPaidForDisplay(l, currentMonthStr))}
                       </td>
-                      <td className="px-3 py-2.5 text-right text-gray-700 text-sm">{fmt(l.monthlyRent)}</td>
                       <td className="px-3 py-2.5">
                         <div className="flex items-center justify-center gap-1 flex-wrap">
                           {(() => {
@@ -1069,7 +1081,7 @@ export function Sales({ data, onUpdateData }: Props) {
             <>
             <div className="overflow-x-scroll overflow-y-auto max-h-[56vh] pt-4 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-gray-100 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-blue-900/40 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar]:w-1.5">
               <h3 className="text-sm font-semibold text-gray-800 mb-2 px-6">Lessee Payments</h3>
-              <table className="w-full text-sm">
+              <table className="w-full text-sm table-fixed">
               <thead>
                 <tr className="bg-blue-900 text-white text-xs uppercase">
                   <th className="px-3 py-3 text-left sticky left-0 bg-blue-900 z-30 rounded-tl-xl">Name</th>
@@ -1108,7 +1120,7 @@ export function Sales({ data, onUpdateData }: Props) {
                         const isImplicit = implicitCoverage.get(l.id)?.has(mStr) ?? false;
                         const canPayThisMonth = canPayForMonth(l, mStr);
                         const cellClass = monthAdvDep > 0
-                          ? monthPaid >= l.monthlyRent
+                          ? monthPaid >= getLesseeRentForMonth(data.payments, l, mStr)
                             ? 'bg-green-100 text-green-700'
                             : monthPaid > 0
                               ? 'bg-orange-100 text-orange-700'
@@ -1137,7 +1149,7 @@ export function Sales({ data, onUpdateData }: Props) {
                           const isFuture = new Date(year, mi, 1) > today;
                           if (isFuture) return s;
                           const paid = data.payments.filter(p => p.lesseeId === l.id && p.forMonth === mStr && p.type !== 'deposit_advance').reduce((ss, p) => ss + p.amount, 0);
-                          return s + Math.max(0, l.monthlyRent - paid);
+                          return s + Math.max(0, getLesseeRentForMonth(data.payments, l, mStr) - paid);
                         }, 0);
                         return (
                           <>
@@ -1200,9 +1212,9 @@ export function Sales({ data, onUpdateData }: Props) {
                         <tr className="bg-red-50/30">
                           <td className="px-3 py-1.5 text-red-600 whitespace-nowrap">Receivables</td>
                           {monthlyBreakdown.map(({ label, receivables, isFuture }) => (
-                            <td key={label} className="px-2 py-1.5 text-center text-red-600 border-r border-red-100">{isFuture ? <span className="text-gray-300">—</span> : receivables > 0 ? fmt(receivables) : <span className="text-gray-300">—</span>}</td>
+                            <td key={label} className={`px-2 py-1.5 text-center border-r border-red-100 ${receivables < 0 ? 'text-green-600' : 'text-red-600'}`}>{isFuture ? <span className="text-gray-300">—</span> : receivables !== 0 ? fmtReceivable(receivables) : <span className="text-gray-300">—</span>}</td>
                           ))}
-                          <td className="px-3 py-1.5 text-right font-semibold text-red-600">{fmt(monthlyBreakdown.reduce((s, m) => s + m.receivables, 0))}</td>
+                          <td className={`px-3 py-1.5 text-right font-semibold ${monthlyBreakdown.reduce((s, m) => s + m.receivables, 0) < 0 ? 'text-green-600' : 'text-red-600'}`}>{fmtReceivable(monthlyBreakdown.reduce((s, m) => s + m.receivables, 0))}</td>
                         </tr>
                       </tbody>
                     </table>
@@ -1238,7 +1250,7 @@ export function Sales({ data, onUpdateData }: Props) {
                 </div>
                 <div className="bg-rose-50 rounded-lg p-2 text-center">
                   <p className="text-xs text-rose-500 mb-0.5">Receivables</p>
-                  <p className="font-bold text-rose-700 text-sm">{fmt(bottomReceivables)}</p>
+                  <p className={`font-bold text-sm ${bottomReceivables < 0 ? 'text-green-700' : 'text-rose-700'}`}>{fmtReceivable(bottomReceivables)}</p>
                 </div>
               </div>
             </div>
